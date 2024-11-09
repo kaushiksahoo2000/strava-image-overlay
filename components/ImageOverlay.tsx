@@ -2,6 +2,7 @@
 'use client';
 
 import React, { useState, useRef } from 'react';
+import heic2any from 'heic2any';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Upload, ImageIcon } from 'lucide-react';
@@ -12,6 +13,36 @@ const ImageOverlay = () => {
   const [resultImage, setResultImage] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+
+  const convertHEICtoJPEG = async (file: File): Promise<string> => {
+    try {
+      // If it's a HEIC file
+      if (file.type === 'image/heic' || file.name.toLowerCase().endsWith('.heic')) {
+        const blob = await heic2any({
+          blob: file,
+          toType: 'image/jpeg',
+          quality: 0.9
+        });
+        
+        // Convert blob to base64
+        return new Promise((resolve) => {
+          const reader = new FileReader();
+          reader.onloadend = () => resolve(reader.result as string);
+          reader.readAsDataURL(Array.isArray(blob) ? blob[0] : blob);
+        });
+      }
+      
+      // If it's not HEIC, just return the base64
+      return new Promise((resolve) => {
+        const reader = new FileReader();
+        reader.onloadend = () => resolve(reader.result as string);
+        reader.readAsDataURL(file);
+      });
+    } catch (error) {
+      console.error('Error converting HEIC:', error);
+      throw error;
+    }
+  };
 
   const stravaInputRef = useRef<HTMLInputElement>(null);
   const baseInputRef = useRef<HTMLInputElement>(null);
@@ -26,44 +57,21 @@ const ImageOverlay = () => {
   ];
 
   const handleImageUpload = async (e: React.ChangeEvent<HTMLInputElement>, type: 'strava' | 'base') => {
-    setError('');
-    const file = e.target.files?.[0];
-    
-    if (!file) return;
-
-    // Check file size (16MB limit)
-    if (file.size > 16 * 1024 * 1024) {
-      setError('Image must be smaller than 16MB');
-      return;
-    }
-
-    // Check file type
-    const fileType = file.type.toLowerCase();
-    // Special handling for HEIC files which might not have proper mime type
-    const isHeic = file.name.toLowerCase().endsWith('.heic') || fileType === 'image/heic';
-    
-    if (!isHeic && !supportedFormats.includes(fileType)) {
-      setError('Unsupported file type. Please use HEIC, JPEG, PNG, or WebP images.');
-      return;
-    }
-
     try {
-      const reader = new FileReader();
-      reader.onload = (e) => {
-        const result = e.target?.result as string;
-        if (type === 'strava') {
-          setStravaImage(result);
-        } else {
-          setBaseImage(result);
-        }
-      };
-      reader.onerror = () => {
-        setError('Error reading file');
-      };
-      reader.readAsDataURL(file);
+      const file = e.target.files?.[0];
+      if (!file) return;
+
+      // Convert to JPEG if needed
+      const base64Image = await convertHEICtoJPEG(file);
+      
+      if (type === 'strava') {
+        setStravaImage(base64Image);
+      } else {
+        setBaseImage(base64Image);
+      }
     } catch (error) {
-      setError('Error processing image');
-      console.error('Error:', error);
+      console.error('Error processing image:', error);
+      // Handle error appropriately
     }
   };
 
