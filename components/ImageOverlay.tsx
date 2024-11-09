@@ -156,14 +156,14 @@ const ImageOverlay = () => {
 
   const handleDownload = () => {
     if (!resultImage) return;
-    
-    // For iOS devices, open in new tab
+  
+    // Open image in a new tab on iOS
     if (/iPad|iPhone|iPod/.test(navigator.userAgent)) {
       window.open(resultImage, '_blank');
       return;
     }
-    
-    // For other devices, trigger download
+  
+    // Trigger download on other devices
     const link = document.createElement('a');
     link.href = resultImage;
     link.download = 'strava-overlay.png';
@@ -191,7 +191,6 @@ const ImageOverlay = () => {
           onChange={(e) => handleImageUpload(e, type)}
           className="hidden"
           ref={inputRef}
-          capture="environment"
         />
         <div>
           {processingImage ? (
@@ -267,11 +266,11 @@ const ImageOverlay = () => {
 
           {resultImage && (
             <div className="mt-4">
-              <h3 className="text-lg font-medium mb-2">Result</h3>
+              <h4 className="text-center font-medium mb-2">Result Preview</h4>
               <img 
                 src={resultImage} 
-                alt="Result" 
-                className="w-full rounded-lg"
+                alt="Result overlay preview" 
+                className="mx-auto rounded-lg shadow-lg object-contain max-h-[480px]"
               />
             </div>
           )}
