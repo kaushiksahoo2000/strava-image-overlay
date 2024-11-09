@@ -5,73 +5,119 @@ import React, { useState, useRef } from 'react';
 import heic2any from 'heic2any';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
-import { Upload, ImageIcon } from 'lucide-react';
+import { Upload, ImageIcon, Loader2 } from 'lucide-react';
 
 const ImageOverlay = () => {
   const [stravaImage, setStravaImage] = useState<string | null>(null);
   const [baseImage, setBaseImage] = useState<string | null>(null);
   const [resultImage, setResultImage] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+  const [processingImage, setProcessingImage] = useState(false);
   const [error, setError] = useState('');
-
-  const convertHEICtoJPEG = async (file: File): Promise<string> => {
-    try {
-      // If it's a HEIC file
-      if (file.type === 'image/heic' || file.name.toLowerCase().endsWith('.heic')) {
-        const blob = await heic2any({
-          blob: file,
-          toType: 'image/jpeg',
-          quality: 0.9
-        });
-        
-        // Convert blob to base64
-        return new Promise((resolve) => {
-          const reader = new FileReader();
-          reader.onloadend = () => resolve(reader.result as string);
-          reader.readAsDataURL(Array.isArray(blob) ? blob[0] : blob);
-        });
-      }
-      
-      // If it's not HEIC, just return the base64
-      return new Promise((resolve) => {
-        const reader = new FileReader();
-        reader.onloadend = () => resolve(reader.result as string);
-        reader.readAsDataURL(file);
-      });
-    } catch (error) {
-      console.error('Error converting HEIC:', error);
-      throw error;
-    }
-  };
 
   const stravaInputRef = useRef<HTMLInputElement>(null);
   const baseInputRef = useRef<HTMLInputElement>(null);
 
-  const supportedFormats = [
-    'image/heic',
-    'image/heif',
-    'image/jpeg',
-    'image/jpg',
-    'image/png',
-    'image/webp'
-  ];
+  const processImage = async (file: File): Promise<string> => {
+    try {
+      // If it's a HEIC file, convert it
+      if (file.type === 'image/heic' || file.name.toLowerCase().endsWith('.heic')) {
+        const blob = await heic2any({
+          blob: file,
+          toType: 'image/jpeg',
+          quality: 0.8
+        });
+        return blobToBase64(Array.isArray(blob) ? blob[0] : blob);
+      }
+
+      // For other image types, optimize before converting to base64
+      const optimizedImage = await resizeAndOptimizeImage(file);
+      return blobToBase64(optimizedImage);
+    } catch (error) {
+      console.error('Error processing image:', error);
+      throw error;
+    }
+  };
+
+  const resizeAndOptimizeImage = async (file: File): Promise<Blob> => {
+    return new Promise((resolve, reject) => {
+      const img = new Image();
+      img.onload = () => {
+        const canvas = document.createElement('canvas');
+        const ctx = canvas.getContext('2d');
+        if (!ctx) {
+          reject(new Error('Could not get canvas context'));
+          return;
+        }
+
+        // Set maximum dimensions while maintaining aspect ratio
+        const MAX_WIDTH = 1920;
+        const MAX_HEIGHT = 1920;
+        let width = img.width;
+        let height = img.height;
+
+        if (width > height) {
+          if (width > MAX_WIDTH) {
+            height *= MAX_WIDTH / width;
+            width = MAX_WIDTH;
+          }
+        } else {
+          if (height > MAX_HEIGHT) {
+            width *= MAX_HEIGHT / height;
+            height = MAX_HEIGHT;
+          }
+        }
+
+        canvas.width = width;
+        canvas.height = height;
+        ctx.drawImage(img, 0, 0, width, height);
+
+        canvas.toBlob(
+          (blob) => {
+            if (blob) {
+              resolve(blob);
+            } else {
+              reject(new Error('Could not create blob'));
+            }
+          },
+          'image/jpeg',
+          0.8
+        );
+      };
+      img.onerror = () => reject(new Error('Could not load image'));
+      img.src = URL.createObjectURL(file);
+    });
+  };
+
+  const blobToBase64 = (blob: Blob): Promise<string> => {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onloadend = () => resolve(reader.result as string);
+      reader.onerror = reject;
+      reader.readAsDataURL(blob);
+    });
+  };
 
   const handleImageUpload = async (e: React.ChangeEvent<HTMLInputElement>, type: 'strava' | 'base') => {
     try {
       const file = e.target.files?.[0];
       if (!file) return;
 
-      // Convert to JPEG if needed
-      const base64Image = await convertHEICtoJPEG(file);
+      setProcessingImage(true);
+      setError('');
+
+      const optimizedImage = await processImage(file);
       
       if (type === 'strava') {
-        setStravaImage(base64Image);
+        setStravaImage(optimizedImage);
       } else {
-        setBaseImage(base64Image);
+        setBaseImage(optimizedImage);
       }
     } catch (error) {
       console.error('Error processing image:', error);
-      // Handle error appropriately
+      setError('Error processing image. Please try again.');
+    } finally {
+      setProcessingImage(false);
     }
   };
 
@@ -101,7 +147,7 @@ const ImageOverlay = () => {
       const data = await response.json();
       setResultImage(data.resultImage);
     } catch (error) {
-      setError(error.message || 'Error creating overlay. Please try again.');
+      setError(error instanceof Error ? error.message : 'Error creating overlay. Please try again.');
       console.error('Error overlaying images:', error);
     } finally {
       setLoading(false);
@@ -136,7 +182,7 @@ const ImageOverlay = () => {
         {type === 'strava' ? 'Strava Screenshot' : 'Base Image'}
       </label>
       <div 
-        className="border-2 border-dashed rounded-lg p-4 text-center touch-manipulation"
+        className="border-2 border-dashed rounded-lg p-4 text-center touch-manipulation cursor-pointer hover:border-primary transition-colors"
         onClick={() => inputRef.current?.click()}
       >
         <input
@@ -147,8 +193,13 @@ const ImageOverlay = () => {
           ref={inputRef}
           capture="environment"
         />
-        <div className="cursor-pointer">
-          {image ? (
+        <div>
+          {processingImage ? (
+            <div className="flex flex-col items-center justify-center py-4">
+              <Loader2 className="h-8 w-8 animate-spin text-gray-400" />
+              <p className="mt-2 text-sm text-gray-500">Processing image...</p>
+            </div>
+          ) : image ? (
             <img 
               src={image} 
               alt={`${type} preview`} 
@@ -183,7 +234,7 @@ const ImageOverlay = () => {
           </div>
 
           {error && (
-            <div className="text-red-500 text-sm text-center p-2">
+            <div className="text-red-500 text-sm text-center p-2 bg-red-50 rounded-md">
               {error}
             </div>
           )}
@@ -194,7 +245,14 @@ const ImageOverlay = () => {
               disabled={!stravaImage || !baseImage || loading}
               className="w-full sm:w-auto"
             >
-              {loading ? 'Processing...' : 'Generate Overlay'}
+              {loading ? (
+                <>
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  Processing...
+                </>
+              ) : (
+                'Generate Overlay'
+              )}
             </Button>
             {resultImage && (
               <Button
